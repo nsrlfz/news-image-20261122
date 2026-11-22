@@ -1,39 +1,33 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+// news-image-20261122 v3: copy entry.png to $MAKEFUN_OUTPUT_DIR.
+// Node 22 stdlib only. The PNG is read from this file's own folder
+// (import.meta.url), so the entrypoint works from any working directory.
+import { copyFileSync, statSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 
-const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-const EXPECTED_WIDTH = 1024;
-const EXPECTED_HEIGHT = 1024;
-const MAX_BYTES = 1024 * 1024;
-
-const here = dirname(fileURLToPath(import.meta.url));
-const source = join(here, "entry.png");
-const outDir = process.env.MAKEFUN_OUTPUT_DIR || join(process.cwd(), "output");
-const target = join(outDir, "entry.png");
-
-function fail(message: string): never {
-  console.error("main.ts: " + message);
+const here = path.dirname(fileURLToPath(import.meta.url));
+const src = path.join(here, 'entry.png');
+const outDir = process.env.MAKEFUN_OUTPUT_DIR;
+if (!outDir) {
+  console.error('MAKEFUN_OUTPUT_DIR is not set');
   process.exit(1);
 }
-
-function main(): void {
-  if (!existsSync(source)) fail("entry.png not found next to main.ts: " + source);
-  const bytes = readFileSync(source);
-  if (bytes.length >= MAX_BYTES) fail("entry.png is " + bytes.length + " bytes, must be under 1 MiB");
-  if (!bytes.subarray(0, 8).equals(PNG_SIGNATURE)) fail("entry.png is not a PNG file");
-  if (bytes.length < 33) fail("entry.png is too short to hold an IHDR chunk");
-  if (bytes.toString("ascii", 12, 16) !== "IHDR") fail("entry.png has no IHDR chunk");
-  const width = bytes.readUInt32BE(16);
-  const height = bytes.readUInt32BE(20);
-  if (width !== EXPECTED_WIDTH || height !== EXPECTED_HEIGHT) {
-    fail("entry.png is " + width + "x" + height + ", expected 1024x1024");
-  }
-  mkdirSync(outDir, { recursive: true });
-  copyFileSync(source, target);
-  const copied = statSync(target);
-  if (copied.size !== bytes.length) fail("copied entry.png size mismatch");
-  console.log("wrote " + target + " (" + bytes.length + " bytes, 1024x1024 PNG)");
+const data = readFileSync(src);
+if (data.length >= 1024 * 1024) {
+  console.error(`entry.png too large: ${data.length} bytes`);
+  process.exit(1);
 }
-
-main();
+if (data.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a') {
+  console.error('entry.png is not a PNG');
+  process.exit(1);
+}
+const width = data.readUInt32BE(16);
+const height = data.readUInt32BE(20);
+if (width !== 1024 || height !== 1024) {
+  console.error(`entry.png must be 1024x1024, got ${width}x${height}`);
+  process.exit(1);
+}
+const dest = path.join(outDir, 'entry.png');
+copyFileSync(src, dest);
+const size = statSync(dest).size;
+console.log(`OK: entry.png ${width}x${height}, ${size} bytes`);
